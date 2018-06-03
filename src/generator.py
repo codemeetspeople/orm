@@ -1,0 +1,157 @@
+import yaml
+from copy import deepcopy
+from db import get_connection
+
+
+class table:
+    __tablename__ = None
+    __m2m__ = False
+
+    def _init_defaults(self):
+        if self.__m2m__:
+            return
+
+        self.id = 'serial primary key'
+        self.created = 'timestamp NOT NULL DEFAULT now()'
+        self.updated = 'timestamp NULL'
+
+    def __init__(self):
+        self._init_defaults()
+
+    def update_fields(self, fields):
+        for f_title, f_type in fields.items():
+            setattr(self, f_title, f_type)
+
+    @property
+    def fields(self):
+        fields_list = []
+
+        for f_title, f_type in self.__dict__.items():
+            if f_title.startswith('_'):
+                continue
+
+            fields_list.append(f'  {f_title} {f_type}')
+        return fields_list
+
+    def to_sql(self):
+        return (
+            'DROP TABLE IF EXISTS "{table}" CASCADE;\n'
+            'CREATE TABLE "{table}"'
+            '(\n{fields}\n);\n'
+        ).format(
+            table=self.__tablename__,
+            fields=',\n'.join(self.fields)
+        )
+
+    def to_python(self):
+        pass
+
+
+
+class SQLGenerator:
+    def __init__(self, schema_path='schema.yaml'):
+        self.schema_path = schema_path
+        self._tables = {}
+        self._alters = []
+        self
+
+        self._read_schema()
+
+    def _read_schema(self):
+        with open(self.schema_path, 'r') as f:
+            self._data = yaml.load(f.read())
+
+    def _table(self, name, fields, m2m=False):
+        tbl_name = name.lower()
+        if m2m:
+            name = ''.join([n.capitalize() for n in name.split('__')])
+        tbl = type(name, (table,), {})
+        tbl.__tablename__ = tbl_name
+        tbl.__m2m__ = m2m
+        tbl_obj = tbl()
+        tbl_obj.update_fields(fields)
+        self._tables[name] = tbl_obj
+
+    def _create_tables(self):
+        for table_name, data in self._data.items():
+            self._table(table_name, data.get('fields', {}))
+
+    def _create_m2m_fk(self, m2m_table, t1, t2):
+        fk_name = ''.join(m2m_table.split('__'))
+        return (
+            f'ALTER TABLE "{m2m_table}"'
+            f' ADD CONSTRAINT "fk_{fk_name}_{t1}_id"'
+            f' FOREIGN KEY ("{t1}_id") REFERENCES "{t1}"("id");'
+        )
+
+    def _create_fk(self, parent, child):
+        return (
+            f'ALTER TABLE "{child}"'
+            f' ADD CONSTRAINT "fk_{child}_{parent}_id"'
+            f' FOREIGN KEY ("{parent}_id") REFERENCES "{parent}"("id");'
+        )
+
+    def _create_m2m(self, parent, child, data):
+        parent_table = parent.lower()
+        child_table = child.lower()
+
+        fields = dict([
+            (f'{parent_table}_id', 'bigint not null'),
+            (f'{child_table}_id', 'bigint not null'),
+        ])
+
+        table_name = f'{parent_table}__{child_table}'
+        self._table(table_name, fields, m2m=True)
+
+        self._alters.extend([
+            self._create_m2m_fk(table_name, parent_table, child_table),
+            self._create_m2m_fk(table_name, child_table, parent_table),
+        ])
+
+        del data[child]['relations'][parent]
+
+    def _create_o2m(self, parent, child):
+        parent_table = parent.lower()
+        child_table = child.lower()
+
+        setattr(self._tables[child], f'{parent_table}_id', 'bigint not null')
+        self._alters.append(self._create_fk(parent_table, child_table))
+
+    def _process_relations(self):
+        schema = deepcopy(self._data)
+
+        for parent, data in schema.items():
+            for child, relation in data.get('relations', {}).items():
+                if relation == 'many' and schema[child]['relations'][parent] == 'many':
+                    self._create_m2m(parent, child, schema)
+                
+                if relation == 'one' and schema[child]['relations'][parent] == 'many':
+                    self._create_o2m(child, parent)
+                
+    def generate(self, to_db=False):
+        self._create_tables()
+        self._process_relations()
+
+        sql_dump = (
+            '{}\n\n{}\n'.format(
+                '\n'.join([t.to_sql() for t in self._tables.values()]),
+                '\n\n'.join(self._alters)
+            )
+        )
+
+        with open('db.sql', 'w') as f:
+            f.write(sql_dump)
+
+        if to_db:
+            try:
+                conn = get_connection()
+                conn.execute(sql_dump)
+            except Exception as e:
+                exc = e
+                import ipdb
+                ipdb.set_trace()
+
+
+if __name__ == '__main__':
+    generator = SQLGenerator()
+    generator.generate(to_db=True)
