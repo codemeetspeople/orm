@@ -1,17 +1,12 @@
 import psycopg2
 from psycopg2 import extras
+import config
 
 __all__ = (
     'get_connection',
 )
 
-connection_params = {
-    'user': 'blog',
-    'dbname': 'blog',
-    'password': 'blog'
-}
-
-connection = psycopg2.connect(**connection_params)
+connection = psycopg2.connect(**config.DATABASE)
 connection.autocommit = True
 
 cursor = connection.cursor(cursor_factory=extras.RealDictCursor)
