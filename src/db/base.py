@@ -19,7 +19,7 @@ class Model(object):
     list_query      = 'SELECT * FROM "{table}"'
     parent_query    = 'SELECT * FROM "{table}" WHERE {parent}_id=%s'
     select_query    = 'SELECT * FROM "{table}" WHERE id=%s'
-    sibling_query   = 'SELECT * FROM "{sibling}" NATURAL JOIN "{join_table}" WHERE {table}_id=%s'
+    sibling_query   = 'SELECT * FROM "{sibling}" JOIN "{join_table}" ON ("{sibling}".id = "{join_table}".{sibling}_id) WHERE "{join_table}".{table}_id=%s'
     update_children = 'UPDATE "{table}" SET {parent}_id=%s WHERE {table}_id IN ({children})'
     update_query    = 'UPDATE "{table}" SET {columns} WHERE {table}_id=%s'
 
