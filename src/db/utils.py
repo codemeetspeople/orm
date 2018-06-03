@@ -1,6 +1,7 @@
 import yaml
 from copy import deepcopy
-from db import get_connection
+import config
+import os
 
 
 class table:
@@ -47,10 +48,9 @@ class table:
         pass
 
 
-
 class SQLGenerator:
-    def __init__(self, schema_path='schema.yaml'):
-        self.schema_path = schema_path
+    def __init__(self):
+        self.schema_path = os.path.join(config.DB_SOURCE_DIR, 'schema.yaml')
         self._tables = {}
         self._alters = []
         self
@@ -128,7 +128,7 @@ class SQLGenerator:
                 if relation == 'one' and schema[child]['relations'][parent] == 'many':
                     self._create_o2m(child, parent)
                 
-    def generate(self, to_db=False):
+    def generate(self):
         self._create_tables()
         self._process_relations()
 
@@ -139,19 +139,5 @@ class SQLGenerator:
             )
         )
 
-        with open('db.sql', 'w') as f:
+        with open(os.path.join(config.DB_SOURCE_DIR, 'db.sql'), 'w') as f:
             f.write(sql_dump)
-
-        if to_db:
-            try:
-                conn = get_connection()
-                conn.execute(sql_dump)
-            except Exception as e:
-                exc = e
-                import ipdb
-                ipdb.set_trace()
-
-
-if __name__ == '__main__':
-    generator = SQLGenerator()
-    generator.generate(to_db=True)
