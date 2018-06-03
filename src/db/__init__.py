@@ -18,8 +18,9 @@ db_pool = pool.SimpleConnectionPool(MIN, MAX, **config.DATABASE)
 @contextmanager
 def get_cursor(_pool=db_pool):
     connection = db_pool.getconn()
+    cursor = connection.cursor(cursor_factory=extras.RealDictCursor)
     try:
-        yield connection.cursor(cursor_factory=extras.RealDictCursor)
+        yield cursor
         connection.commit()
     finally:
         db_pool.putconn(connection)
