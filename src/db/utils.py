@@ -16,6 +16,11 @@ class table:
         self.created = 'timestamp NOT NULL DEFAULT now()'
         self.updated = 'timestamp NULL'
 
+        self._fields = []
+        self._parents = []
+        self._children = {}
+        self._siblings = {}
+
     def __init__(self):
         self._init_defaults()
 
@@ -45,7 +50,24 @@ class table:
         )
 
     def to_python(self):
-        pass
+        columns = ', '.join(map(lambda x: '\'{}\''.format(x), self._fields))
+        parents = ', '.join(map(lambda x: '\'{}\''.format(x), self._parents))
+        children = ', '.join(['\'{}\': \'{}\''.format(k, v) for k, v in self._children.items()])
+        siblings = ', '.join(['\'{}\': \'{}\''.format(k, v) for k, v in self._siblings.items()])
+
+        return (
+            'class {classname}(Model):\n'
+            '    _columns = [{columns}]\n'
+            '    _parents = [{parents}]\n'
+            '    _children = {{{children}}}\n'
+            '    _siblings = {{{siblings}}}\n'
+        ).format(
+            classname=self.__class__.__name__,
+            columns=columns,
+            parents=parents,
+            children=children,
+            siblings=siblings
+        )
 
 
 class SQLGenerator:
@@ -53,7 +75,6 @@ class SQLGenerator:
         self.schema_path = os.path.join(config.DB_SOURCE_DIR, 'schema.yaml')
         self._tables = {}
         self._alters = []
-        self
 
         self._read_schema()
 
@@ -70,6 +91,8 @@ class SQLGenerator:
         tbl.__m2m__ = m2m
         tbl_obj = tbl()
         tbl_obj.update_fields(fields)
+        if not m2m:
+            tbl_obj._fields += fields.keys()
         self._tables[name] = tbl_obj
 
     def _create_tables(self):
@@ -108,6 +131,9 @@ class SQLGenerator:
             self._create_m2m_fk(table_name, child_table, parent_table),
         ])
 
+        self._tables[child]._siblings[parent_table] = parent
+        self._tables[parent]._siblings[child_table] = child
+
         del data[child]['relations'][parent]
 
     def _create_o2m(self, parent, child):
@@ -116,6 +142,9 @@ class SQLGenerator:
 
         setattr(self._tables[child], f'{parent_table}_id', 'bigint not null')
         self._alters.append(self._create_fk(parent_table, child_table))
+
+        self._tables[parent]._children[child_table] = child
+        self._tables[child]._parents.append(parent_table)
 
     def _process_relations(self):
         schema = deepcopy(self._data)
@@ -141,3 +170,9 @@ class SQLGenerator:
 
         with open(os.path.join(config.DB_SOURCE_DIR, 'db.sql'), 'w') as f:
             f.write(sql_dump)
+
+        with open(os.path.join(config.DB_DIR, 'models.py'), 'w') as f:
+            f.write((
+                'from db.base import Model\n\n\n'
+                '{}'
+            ).format('\n\n'.join([t.to_python() for t in self._tables.values() if not t.__m2m__])))

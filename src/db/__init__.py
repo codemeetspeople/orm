@@ -1,16 +1,25 @@
-import psycopg2
+from contextlib import contextmanager
+
 from psycopg2 import extras
+from psycopg2 import pool
+
 import config
 
 __all__ = (
-    'get_connection',
+    'get_cursor',
 )
 
-connection = psycopg2.connect(**config.DATABASE)
-connection.autocommit = True
+MIN = 1
+MAX = 10
 
-cursor = connection.cursor(cursor_factory=extras.RealDictCursor)
+db_pool = pool.SimpleConnectionPool(MIN, MAX, **config.DATABASE)
 
 
-def get_connection(_connection=cursor):
-    return _connection
+@contextmanager
+def get_cursor(_pool=db_pool):
+    connection = db_pool.getconn()
+    try:
+        yield connection.cursor(cursor_factory=extras.RealDictCursor)
+        connection.commit()
+    finally:
+        db_pool.putconn(connection)
