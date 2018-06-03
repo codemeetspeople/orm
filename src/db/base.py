@@ -186,7 +186,7 @@ class Model(object):
 
         cls = getattr(models, sibling_entity_name)
 
-        with self._cursor as cursor:
+        with self._cursor() as cursor:
             cursor.execute(query, (self.id,))
             rows = cursor.fetchall()
 
